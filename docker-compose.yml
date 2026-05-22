@@ -1,0 +1,60 @@
+version: "3.9"
+
+# ══════════════════════════════════════════════════════════
+#  FTZ-ERP Platform — Chạy lệnh: docker compose up
+# ══════════════════════════════════════════════════════════
+
+services:
+  # Database PostgreSQL
+  postgres:
+    image: postgres:16-alpine
+    container_name: ftz-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ftzuser
+      POSTGRES_PASSWORD: ftzpass
+      POSTGRES_DB: ftzdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ftzuser -d ftzdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Cache Redis
+  redis:
+    image: redis:7-alpine
+    container_name: ftz-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Ứng dụng FTZ-ERP
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ftz-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgresql://ftzuser:ftzpass@postgres:5432/ftzdb
+      REDIS_URL: redis://redis:6379
+      AUTH_SECRET: ftz-erp-secret-2025
+      AUTH_URL: http://localhost:3000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NODE_ENV: development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+# Lưu dữ liệu database
+volumes:
+  postgres_data:

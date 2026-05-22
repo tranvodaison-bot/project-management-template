@@ -1,0 +1,264 @@
+// Project Management Suite: Projects, WBS, Contracts, QC, HSE, Procurement, Risk
+
+model Project {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String  @db.Uuid
+  cdeContainerId   String? @db.Uuid
+  code             String  @unique
+  name             String
+  description      String?
+  projectType      String  // 'infrastructure' | 'building' | 'ftz_development' | 'residential'
+  plannedStart     DateTime?
+  plannedEnd       DateTime?
+  actualStart      DateTime?
+  actualEnd        DateTime?
+  totalBudget      Decimal? @db.Decimal(18, 2)
+  currency         String   @default("VND")
+  status           String   @default("PLANNING") // PLANNING | ACTIVE | ON_HOLD | COMPLETED | CANCELLED
+  phase            String?
+  completionPct    Decimal  @db.Decimal(5, 2) @default(0)
+  uniclassCode     String?
+  projectManagerId String?  @db.Uuid
+  clientId         String?  @db.Uuid
+  metadata         Json     @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  wbsNodes     WbsNode[]
+  contracts    Contract[]
+  inspections  QcInspection[]
+  incidents    HseIncident[]
+  procRequests ProcurementRequest[]
+  risks        RiskRegisterItem[]
+
+  @@index([tenantId, status])
+  @@map("projects")
+}
+
+// ── WBS (Work Breakdown Structure) ────────────────────────────────────────────
+model WbsNode {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String  @db.Uuid
+  tenantId  String  @db.Uuid
+  parentId  String? @db.Uuid
+  code      String  // 1.0, 1.1, 1.1.1
+  name      String
+  level     Int
+  wbsType   String  // 'phase' | 'deliverable' | 'work_package' | 'activity'
+
+  plannedStart DateTime?
+  plannedEnd   DateTime?
+  actualStart  DateTime?
+  actualEnd    DateTime?
+  durationDays Int?
+  progressPct  Decimal   @db.Decimal(5, 2) @default(0)
+
+  plannedCost Decimal? @db.Decimal(18, 2)
+  actualCost  Decimal? @db.Decimal(18, 2)
+
+  predecessorIds String[] @db.Uuid
+  dependencyType String   @default("FS") // FS | SS | FF | SF
+
+  assignedTo String[] @db.Uuid
+  pathLtree  String?
+
+  // Earned Value
+  bac Decimal? @db.Decimal(18, 2)
+  ev  Decimal? @db.Decimal(18, 2)
+  ac  Decimal? @db.Decimal(18, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project  Project    @relation(fields: [projectId], references: [id])
+  parent   WbsNode?   @relation("WbsHierarchy", fields: [parentId], references: [id])
+  children WbsNode[]  @relation("WbsHierarchy")
+
+  @@index([projectId])
+  @@map("wbs_nodes")
+}
+
+// ── Contracts ─────────────────────────────────────────────────────────────────
+model Contract {
+  id              String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String  @db.Uuid
+  projectId       String? @db.Uuid
+  contractNumber  String  @unique
+  contractType    String  // 'design' | 'construction' | 'consulting' | 'supply' | 'sale' | 'lease'
+  title           String
+  counterpartyId  String? @db.Uuid
+  ownerRepId      String? @db.Uuid
+  contractValue   Decimal? @db.Decimal(18, 2)
+  currency        String   @default("VND")
+  paymentSchedule Json     @default("[]")
+  signedDate      DateTime?
+  startDate       DateTime?
+  endDate         DateTime?
+  status          String   @default("DRAFT") // DRAFT | NEGOTIATING | SIGNED | ACTIVE | COMPLETED | TERMINATED
+  contractDocumentId String? @db.Uuid
+  milestones      Json     @default("[]")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([tenantId, status])
+  @@map("contracts")
+}
+
+// ── QC/QA ─────────────────────────────────────────────────────────────────────
+model QcInspectionPlan {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String @db.Uuid
+  projectId      String @db.Uuid
+  wbsNodeId      String? @db.Uuid
+  inspectionType String  // 'material' | 'structural' | 'finishing' | 'mep' | 'final'
+  checklist      Json    @default("[]")
+  frequency      String? // 'daily' | 'weekly' | 'milestone'
+  createdAt      DateTime @default(now())
+
+  inspections QcInspection[]
+
+  @@map("qc_inspection_plans")
+}
+
+model QcInspection {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String   @db.Uuid
+  projectId      String   @db.Uuid
+  planId         String?  @db.Uuid
+  wbsNodeId      String?  @db.Uuid
+  inspectionDate DateTime
+  inspectorId    String   @db.Uuid
+  result         String?  // 'PASS' | 'FAIL' | 'CONDITIONAL'
+  findings       Json     @default("[]")
+  nonConformances Json    @default("[]")
+  correctiveActions Json  @default("[]")
+  status         String   @default("SCHEDULED") // SCHEDULED | IN_PROGRESS | COMPLETED | CANCELLED
+  documentIds    String[] @db.Uuid
+  createdAt      DateTime @default(now())
+
+  project Project           @relation(fields: [projectId], references: [id])
+  plan    QcInspectionPlan? @relation(fields: [planId], references: [id])
+
+  @@index([projectId])
+  @@map("qc_inspections")
+}
+
+// ── HSE (Health, Safety, Environment) ─────────────────────────────────────────
+model HseIncident {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String   @db.Uuid
+  projectId       String?  @db.Uuid
+  incidentType    String   // 'near_miss' | 'first_aid' | 'medical_treatment' | 'lost_time' | 'fatality'
+  incidentDate    DateTime
+  location        String?
+  description     String
+  injuredParty    String?
+  severity        String?  // 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  rootCause       String?
+  correctiveActions Json   @default("[]")
+  status          String   @default("OPEN") // OPEN | INVESTIGATING | CLOSED
+  reportedById    String   @db.Uuid
+  documentIds     String[] @db.Uuid
+  createdAt       DateTime @default(now())
+
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@index([tenantId, status])
+  @@map("hse_incidents")
+}
+
+model HseSafetyObservation {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  projectId   String?  @db.Uuid
+  observerId  String   @db.Uuid
+  category    String   // 'unsafe_act' | 'unsafe_condition' | 'good_practice'
+  description String
+  severity    String?
+  status      String   @default("OPEN")
+  correctedAt DateTime?
+  createdAt   DateTime @default(now())
+
+  @@map("hse_safety_observations")
+}
+
+// ── Procurement ────────────────────────────────────────────────────────────────
+model ProcurementRequest {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String @db.Uuid
+  projectId    String? @db.Uuid
+  requesterId  String @db.Uuid
+  items        Json   @default("[]") // [{name, quantity, unit, estimatedPrice}]
+  totalEstimate Decimal? @db.Decimal(18, 2)
+  status       String @default("DRAFT") // DRAFT | PENDING | APPROVED | REJECTED | PO_ISSUED
+  approvedById String? @db.Uuid
+  requiredDate DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+
+  project Project?   @relation(fields: [projectId], references: [id])
+  rfqs    ProcurementRfq[]
+
+  @@map("procurement_requests")
+}
+
+model ProcurementRfq {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String @db.Uuid
+  requestId String @db.Uuid
+  vendors   Json   @default("[]")
+  issuedDate DateTime?
+  deadline  DateTime?
+  status    String @default("DRAFT") // DRAFT | SENT | EVALUATION | AWARDED | CANCELLED
+  createdAt DateTime @default(now())
+
+  request ProcurementRequest @relation(fields: [requestId], references: [id])
+  bids    ProcurementBid[]
+
+  @@map("procurement_rfqs")
+}
+
+model ProcurementBid {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String @db.Uuid
+  rfqId       String @db.Uuid
+  vendorId    String @db.Uuid
+  bidAmount   Decimal? @db.Decimal(18, 2)
+  documents   Json   @default("[]")
+  submittedAt DateTime?
+  score       Decimal? @db.Decimal(5, 2)
+  isAwarded   Boolean @default(false)
+  notes       String?
+
+  rfq ProcurementRfq @relation(fields: [rfqId], references: [id])
+
+  @@map("procurement_bids")
+}
+
+// ── Risk Register ──────────────────────────────────────────────────────────────
+model RiskRegisterItem {
+  id               String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String @db.Uuid
+  projectId        String? @db.Uuid
+  title            String
+  description      String?
+  category         String  // 'technical' | 'schedule' | 'cost' | 'regulatory' | 'environmental'
+  probability      Int     // 1-5
+  impact           Int     // 1-5
+  riskScore        Int     // computed: probability * impact
+  riskLevel        String  // 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  ownerId          String? @db.Uuid
+  mitigationPlan   String?
+  contingencyPlan  String?
+  status           String  @default("OPEN") // OPEN | MITIGATING | CLOSED | REALIZED
+  reviewDate       DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  project Project? @relation(fields: [projectId], references: [id])
+
+  @@map("risk_register")
+}

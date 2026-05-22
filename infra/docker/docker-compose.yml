@@ -1,0 +1,143 @@
+version: "3.9"
+
+services:
+  # ─── PostgreSQL 16 with TimescaleDB ───────────────────────────────────────
+  postgres:
+    image: timescale/timescaledb:latest-pg16
+    container_name: ftz-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ftzuser
+      POSTGRES_PASSWORD: ftzpass
+      POSTGRES_DB: ftzdb
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ftzuser -d ftzdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis 7 ──────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ftz-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── MinIO (S3-compatible object storage) ─────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: ftz-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # MinIO bucket initialization
+  minio-init:
+    image: minio/mc:latest
+    container_name: ftz-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin;
+      mc mb --ignore-existing local/ftz-erp;
+      mc mb --ignore-existing local/ftz-erp-tmp;
+      mc anonymous set download local/ftz-erp/public;
+      exit 0;
+      "
+
+  # ─── Meilisearch ──────────────────────────────────────────────────────────
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: ftz-meilisearch
+    restart: unless-stopped
+    ports:
+      - "7700:7700"
+    environment:
+      MEILI_MASTER_KEY: "your-meilisearch-master-key"
+      MEILI_ENV: "development"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:7700/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Temporal.io (Workflow Engine) ────────────────────────────────────────
+  temporal:
+    image: temporalio/auto-setup:1.27
+    container_name: ftz-temporal
+    restart: unless-stopped
+    ports:
+      - "7233:7233"
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=ftzuser
+      - POSTGRES_PWD=ftzpass
+      - POSTGRES_SEEDS=postgres
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./temporal-config:/etc/temporal/config/dynamicconfig
+
+  temporal-ui:
+    image: temporalio/ui:2.34
+    container_name: ftz-temporal-ui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    depends_on:
+      - temporal
+
+  # ─── Mailhog (local SMTP for dev) ─────────────────────────────────────────
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ftz-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+  meilisearch_data:
+
+networks:
+  default:
+    name: ftz-erp-network

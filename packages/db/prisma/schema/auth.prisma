@@ -1,0 +1,153 @@
+// Auth: Users, Roles, Permissions, Sessions, RBAC/ABAC
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+model User {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  email       String   @unique
+  displayName String
+  avatarUrl   String?
+  phone       String?
+  employeeId  String?  @db.Uuid
+  userType    String   @default("internal") // 'internal' | 'partner' | 'customer' | 'regulatory'
+  isActive    Boolean  @default(true)
+  lastLoginAt DateTime?
+  settings    Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant      Tenant     @relation(fields: [tenantId], references: [id])
+  accounts    Account[]
+  sessions    Session[]
+  userRoles   UserRole[]
+
+  // CDE relations
+  containersCreated  CdeContainer[]    @relation("ContainerCreator")
+  documentsCreated   Document[]        @relation("DocumentCreator")
+  revisionsUploaded  DocumentRevision[] @relation("RevisionUploader")
+  approvalsGiven     DocumentApproval[] @relation("ApprovalApprover")
+  approvalsEscalated DocumentApproval[] @relation("ApprovalEscalation")
+
+  notifications      Notification[]
+
+  @@index([tenantId])
+  @@index([email])
+  @@map("users")
+}
+
+// Auth.js required tables
+model Account {
+  id                String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String  @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionToken String   @unique
+  userId       String   @db.Uuid
+  expires      DateTime
+  tenantId     String?  @db.Uuid
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ── Roles (tenant-scoped) ─────────────────────────────────────────────────────
+model Role {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String  @db.Uuid
+  name        String
+  slug        String
+  description String?
+  isSystem    Boolean @default(false)
+  permissions String[] // Array of permission strings: ["documents:read", "hrm:write"]
+  color       String?  // UI display color
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  userRoles UserRole[]
+
+  @@unique([tenantId, slug])
+  @@map("roles")
+}
+
+// ── User-Role Assignments ──────────────────────────────────────────────────────
+model UserRole {
+  userId    String   @db.Uuid
+  roleId    String   @db.Uuid
+  tenantId  String   @db.Uuid
+  grantedAt DateTime @default(now())
+  grantedBy String?  @db.Uuid
+  expiresAt DateTime?
+  scope     Json?    // ABAC scope: {"project_id": "...", "zone": "A"}
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+// ── ABAC Policies ─────────────────────────────────────────────────────────────
+model AbacPolicy {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String @db.Uuid
+  name         String
+  resourceType String // 'document' | 'project' | 'contract'
+  action       String // 'read' | 'write' | 'approve' | 'delete'
+  conditions   Json
+  effect       String @default("ALLOW") // 'ALLOW' | 'DENY'
+  priority     Int    @default(0)
+  isActive     Boolean @default(true)
+  createdAt    DateTime @default(now())
+
+  @@map("abac_policies")
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────────
+model Notification {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String   @db.Uuid
+  tenantId   String   @db.Uuid
+  type       String   // 'task_assigned' | 'approval_required' | 'document_shared' | 'mention'
+  title      String
+  body       String
+  link       String?
+  isRead     Boolean  @default(false)
+  priority   String   @default("NORMAL")  // LOW | NORMAL | HIGH | URGENT
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+  readAt     DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@index([tenantId])
+  @@map("notifications")
+}

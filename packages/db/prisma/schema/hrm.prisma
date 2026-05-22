@@ -1,0 +1,246 @@
+// HRM: Employees, Departments, Payroll, Recruitment, Training, Performance
+
+model HrmDepartment {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String  @db.Uuid
+  name       String
+  code       String
+  parentId   String? @db.Uuid
+  managerId  String? @db.Uuid
+  costCenter String?
+  createdAt  DateTime @default(now())
+
+  parent    HrmDepartment?  @relation("DeptHierarchy", fields: [parentId], references: [id])
+  children  HrmDepartment[] @relation("DeptHierarchy")
+  positions HrmPosition[]
+  employees HrmEmployee[]
+
+  @@unique([tenantId, code])
+  @@map("hrm_departments")
+}
+
+model HrmPosition {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String  @db.Uuid
+  departmentId String  @db.Uuid
+  name         String
+  level        String? // 'C-level' | 'Director' | 'Manager' | 'Senior' | 'Junior'
+  jobGrade     String?
+  minSalary    Decimal? @db.Decimal(15, 2)
+  maxSalary    Decimal? @db.Decimal(15, 2)
+
+  department HrmDepartment @relation(fields: [departmentId], references: [id])
+  employees  HrmEmployee[]
+
+  @@map("hrm_positions")
+}
+
+model HrmEmployee {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String  @db.Uuid
+  userId         String? @db.Uuid @unique
+  employeeNumber String  @unique
+  fullName       String
+  dateOfBirth    DateTime?
+  gender         String?
+  nationality    String?
+  idNumber       String?
+  departmentId   String? @db.Uuid
+  positionId     String? @db.Uuid
+  managerId      String? @db.Uuid
+  hireDate       DateTime
+  contractType   String? // 'full-time' | 'part-time' | 'contract' | 'probation'
+  contractEndDate DateTime?
+  employmentStatus String @default("active") // 'active' | 'on-leave' | 'terminated' | 'resigned'
+  baseSalary     Decimal? @db.Decimal(15, 2)
+  salaryCurrency String   @default("VND")
+  skills         Json     @default("[]")
+  certifications Json     @default("[]")
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  department   HrmDepartment? @relation(fields: [departmentId], references: [id])
+  position     HrmPosition?   @relation(fields: [positionId], references: [id])
+  manager      HrmEmployee?   @relation("ManagerSubordinate", fields: [managerId], references: [id])
+  subordinates HrmEmployee[]  @relation("ManagerSubordinate")
+  leaveRequests HrmLeaveRequest[]
+  payrollItems  HrmPayrollItem[]
+  trainingEnrollments HrmTrainingEnrollment[]
+  performanceReviews  HrmPerformanceReview[]
+
+  @@index([tenantId, employmentStatus])
+  @@map("hrm_employees")
+}
+
+model HrmLeaveRequest {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String  @db.Uuid
+  employeeId String  @db.Uuid
+  leaveType  String  // 'annual' | 'sick' | 'unpaid' | 'maternity' | 'paternity'
+  startDate  DateTime
+  endDate    DateTime
+  totalDays  Decimal @db.Decimal(4, 1)
+  status     String  @default("PENDING")  // PENDING | APPROVED | REJECTED | CANCELLED
+  approverId String? @db.Uuid
+  reason     String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  employee HrmEmployee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, status])
+  @@map("hrm_leave_requests")
+}
+
+model HrmPayrollRun {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String  @db.Uuid
+  periodYear     Int
+  periodMonth    Int
+  status         String  @default("DRAFT") // DRAFT | PROCESSING | APPROVED | PAID
+  runDate        DateTime?
+  approvedById   String? @db.Uuid
+  approvedAt     DateTime?
+  totalGross     Decimal? @db.Decimal(15, 2)
+  totalNet       Decimal? @db.Decimal(15, 2)
+  totalDeductions Decimal? @db.Decimal(15, 2)
+  createdAt      DateTime @default(now())
+
+  items HrmPayrollItem[]
+
+  @@unique([tenantId, periodYear, periodMonth])
+  @@map("hrm_payroll_runs")
+}
+
+model HrmPayrollItem {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  runId      String @db.Uuid
+  employeeId String @db.Uuid
+  tenantId   String @db.Uuid
+
+  // Earnings
+  baseSalary    Decimal @db.Decimal(15, 2) @default(0)
+  allowances    Json    @default("{}")
+  overtimeHours Decimal @db.Decimal(5, 2) @default(0)
+  overtimePay   Decimal @db.Decimal(15, 2) @default(0)
+  bonuses       Decimal @db.Decimal(15, 2) @default(0)
+  grossSalary   Decimal @db.Decimal(15, 2) @default(0)
+
+  // Deductions (Vietnam)
+  socialInsurance      Decimal @db.Decimal(15, 2) @default(0)
+  healthInsurance      Decimal @db.Decimal(15, 2) @default(0)
+  unemploymentInsurance Decimal @db.Decimal(15, 2) @default(0)
+  pitWithholding       Decimal @db.Decimal(15, 2) @default(0)
+  totalDeductions      Decimal @db.Decimal(15, 2) @default(0)
+  netSalary            Decimal @db.Decimal(15, 2) @default(0)
+
+  run      HrmPayrollRun @relation(fields: [runId], references: [id])
+  employee HrmEmployee   @relation(fields: [employeeId], references: [id])
+
+  @@map("hrm_payroll_items")
+}
+
+model HrmRecruitmentJob {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String  @db.Uuid
+  title        String
+  departmentId String? @db.Uuid
+  headcount    Int     @default(1)
+  status       String  @default("OPEN") // OPEN | CLOSED | ON_HOLD
+  requirements Json    @default("{}")   // {skills, experience, education}
+  description  String?
+  closingDate  DateTime?
+  createdAt    DateTime @default(now())
+
+  applicants HrmApplicant[]
+
+  @@map("hrm_recruitment_jobs")
+}
+
+model HrmApplicant {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String  @db.Uuid
+  jobId            String  @db.Uuid
+  name             String
+  email            String
+  phone            String?
+  resumeDocumentId String? @db.Uuid
+  stage            String  @default("APPLIED") // APPLIED | SCREENING | INTERVIEW | OFFER | HIRED | REJECTED
+  rating           Int?
+  notes            String?
+  appliedAt        DateTime @default(now())
+
+  job HrmRecruitmentJob @relation(fields: [jobId], references: [id])
+
+  @@map("hrm_applicants")
+}
+
+model HrmTrainingProgram {
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String  @db.Uuid
+  name          String
+  programType   String  // 'internal' | 'external' | 'online' | 'safety'
+  provider      String?
+  durationHours Decimal @db.Decimal(6, 2)
+  cost          Decimal? @db.Decimal(12, 2)
+  validityMonths Int?
+  description   String?
+  createdAt     DateTime @default(now())
+
+  enrollments HrmTrainingEnrollment[]
+
+  @@map("hrm_training_programs")
+}
+
+model HrmTrainingEnrollment {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  programId   String   @db.Uuid
+  employeeId  String   @db.Uuid
+  tenantId    String   @db.Uuid
+  status      String   @default("ENROLLED") // ENROLLED | COMPLETED | FAILED | CANCELLED
+  score       Decimal? @db.Decimal(5, 2)
+  completedAt DateTime?
+  expiresAt   DateTime?
+  enrolledAt  DateTime @default(now())
+
+  program  HrmTrainingProgram @relation(fields: [programId], references: [id])
+  employee HrmEmployee        @relation(fields: [employeeId], references: [id])
+
+  @@map("hrm_training_enrollments")
+}
+
+model HrmPerformanceCycle {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String  @db.Uuid
+  year             Int
+  period           String  // 'H1' | 'H2' | 'ANNUAL' | 'Q1' etc.
+  status           String  @default("PLANNING") // PLANNING | ACTIVE | REVIEW | CLOSED
+  evaluationMethod String  @default("KPI")  // 'KPI' | 'OKR' | '360' | 'MIXED'
+  startDate        DateTime
+  endDate          DateTime
+
+  reviews HrmPerformanceReview[]
+
+  @@map("hrm_performance_cycles")
+}
+
+model HrmPerformanceReview {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  cycleId    String   @db.Uuid
+  employeeId String   @db.Uuid
+  reviewerId String   @db.Uuid
+  tenantId   String   @db.Uuid
+  scores     Json     @default("{}")  // {kpi_1: 4, kpi_2: 3, ...}
+  overallRating Decimal? @db.Decimal(3, 2)
+  selfAssessment String?
+  managerFeedback String?
+  status     String   @default("PENDING") // PENDING | SELF_DONE | MANAGER_DONE | CALIBRATED | CLOSED
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  cycle    HrmPerformanceCycle @relation(fields: [cycleId], references: [id])
+  employee HrmEmployee         @relation(fields: [employeeId], references: [id])
+
+  @@map("hrm_performance_reviews")
+}

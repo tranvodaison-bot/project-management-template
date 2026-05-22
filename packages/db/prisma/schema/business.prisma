@@ -1,0 +1,218 @@
+// Business: Contacts, CRM, M&A, Operations/Tenant Management, Legal
+
+model BusinessContact {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String @db.Uuid
+  contactType String // 'lead' | 'prospect' | 'client' | 'vendor' | 'partner'
+  companyName String?
+  contactName String?
+  email       String?
+  phone       String?
+  address     Json   @default("{}")
+  industry    String?
+  tags        String[]
+  assignedToId String? @db.Uuid
+  source      String?
+  metadata    Json   @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  deals   CrmDeal[]
+  mnaTargets MnaTarget[]
+
+  @@index([tenantId, contactType])
+  @@map("business_contacts")
+}
+
+model CrmDeal {
+  id               String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String @db.Uuid
+  contactId        String @db.Uuid
+  title            String
+  stage            String @default("PROSPECTING") // PROSPECTING | QUALIFICATION | PROPOSAL | NEGOTIATION | CLOSED_WON | CLOSED_LOST
+  value            Decimal? @db.Decimal(18, 2)
+  probability      Int?     // 0-100
+  expectedCloseDate DateTime?
+  ownerId          String  @db.Uuid
+  notes            String?
+  activities       Json    @default("[]")
+  lostReason       String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  contact BusinessContact @relation(fields: [contactId], references: [id])
+
+  @@index([tenantId, stage])
+  @@map("crm_deals")
+}
+
+model MnaTarget {
+  id                String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String @db.Uuid
+  contactId         String? @db.Uuid
+  companyName       String
+  targetType        String // 'acquisition' | 'merger' | 'jv' | 'investment'
+  status            String @default("SCREENING") // SCREENING | DUE_DILIGENCE | NEGOTIATION | APPROVED | REJECTED | COMPLETED
+  estimatedValue    Decimal? @db.Decimal(18, 2)
+  financialSummary  Json    @default("{}")
+  strategicRationale String?
+  leadId            String? @db.Uuid
+  advisorFirm       String?
+  keyMilestones     Json    @default("[]")
+  documentIds       String[] @db.Uuid
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  contact BusinessContact? @relation(fields: [contactId], references: [id])
+
+  @@map("mna_targets")
+}
+
+// ── Operations / Zone Tenant Management ───────────────────────────────────────
+model OpsZoneTenant {
+  id                 String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String @db.Uuid  // Platform tenant
+  companyName        String
+  registrationNumber String?
+  industry           String?
+  contactPerson      String?
+  contactEmail       String?
+  contactPhone       String?
+  zoneSection        String?
+  plotNumber         String?
+  leasedAreaSqm      Decimal? @db.Decimal(10, 2)
+  leaseStartDate     DateTime?
+  leaseEndDate       DateTime?
+  leaseStatus        String @default("ACTIVE") // ACTIVE | EXPIRED | TERMINATED
+  monthlyRent        Decimal? @db.Decimal(18, 2)
+  securityDeposit    Decimal? @db.Decimal(18, 2)
+  userAccountId      String? @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workOrders OpsWorkOrder[]
+
+  @@map("ops_zone_tenants")
+}
+
+model OpsWorkOrder {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String @db.Uuid
+  orderNumber   String?
+  requesterId   String? @db.Uuid
+  requestorType String  @default("internal") // 'internal' | 'zone_tenant' | 'customer'
+  zoneTenantId  String? @db.Uuid
+  category      String  // 'maintenance' | 'repair' | 'installation' | 'inspection'
+  priority      String  @default("NORMAL") // LOW | NORMAL | HIGH | URGENT
+  assetId       String? @db.Uuid
+  location      String?
+  description   String
+  assignedToId  String? @db.Uuid
+  status        String  @default("OPEN") // OPEN | ASSIGNED | IN_PROGRESS | ON_HOLD | COMPLETED | CANCELLED
+  plannedStart  DateTime?
+  plannedEnd    DateTime?
+  actualStart   DateTime?
+  actualEnd     DateTime?
+  estimatedCost Decimal? @db.Decimal(18, 2)
+  actualCost    Decimal? @db.Decimal(18, 2)
+  completionNotes String?
+  documentIds   String[] @db.Uuid
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  zoneTenant OpsZoneTenant? @relation(fields: [zoneTenantId], references: [id])
+
+  @@index([tenantId, status])
+  @@map("ops_work_orders")
+}
+
+// ── Legal & Compliance ─────────────────────────────────────────────────────────
+model LegalFile {
+  id                String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String @db.Uuid
+  fileNumber        String?
+  title             String
+  caseType          String // 'contract_dispute' | 'regulatory' | 'employment' | 'ip' | 'land'
+  status            String @default("ACTIVE") // ACTIVE | PENDING | RESOLVED | ARCHIVED
+  externalCounselId String? @db.Uuid
+  internalCounselId String? @db.Uuid
+  opposingParty     String?
+  jurisdiction      String?
+  courtCaseNumber   String?
+  keyDates          Json   @default("{}")
+  estimatedLiability Decimal? @db.Decimal(18, 2)
+  actualSettlement   Decimal? @db.Decimal(18, 2)
+  documentIds        String[] @db.Uuid
+  relatedContractIds String[] @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("legal_files")
+}
+
+model LegalRegulation {
+  id                String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId          String @db.Uuid
+  regulationNumber  String?
+  title             String
+  issuingBody       String?
+  effectiveDate     DateTime?
+  expiryDate        DateTime?
+  category          String // 'labor' | 'environmental' | 'tax' | 'land' | 'construction'
+  applicability     String[] // which business units are affected
+  complianceDeadline DateTime?
+  status            String @default("EFFECTIVE") // EFFECTIVE | SUPERSEDED | REPEALED
+  fullTextDocumentId String? @db.Uuid
+  summary           String?
+  createdAt          DateTime @default(now())
+
+  complianceItems LegalComplianceItem[]
+
+  @@map("legal_regulations")
+}
+
+model LegalComplianceItem {
+  id               String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String @db.Uuid
+  regulationId     String @db.Uuid
+  requirementText  String
+  ownerId          String? @db.Uuid
+  dueDate          DateTime?
+  status           String  @default("PENDING") // PENDING | IN_PROGRESS | COMPLIANT | NON_COMPLIANT
+  evidenceDocumentIds String[] @db.Uuid
+  reviewFrequency  String?  // 'monthly' | 'quarterly' | 'annual'
+  lastReviewedAt   DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  regulation LegalRegulation @relation(fields: [regulationId], references: [id])
+
+  @@map("legal_compliance_items")
+}
+
+// ── Audit Log ──────────────────────────────────────────────────────────────────
+model AuditLog {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String @db.Uuid
+  userId       String? @db.Uuid
+  userEmail    String?
+  userName     String?
+  action       String  // 'CREATE' | 'UPDATE' | 'DELETE' | 'VIEW' | 'APPROVE' | 'EXPORT'
+  resourceType String
+  resourceId   String? @db.Uuid
+  resourceName String?
+  oldValues    Json?
+  newValues    Json?
+  changedFields String[]
+  ipAddress    String?
+  userAgent    String?
+  requestId    String?
+  occurredAt   DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, occurredAt])
+  @@index([userId])
+  @@map("audit_logs")
+}

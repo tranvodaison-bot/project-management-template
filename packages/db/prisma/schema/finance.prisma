@@ -1,0 +1,121 @@
+// Finance & Accounting: Chart of Accounts, GL, Budget, AP, AR
+
+model FinAccount {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String @db.Uuid
+  code        String // Vietnamese: 111, 112, 131, etc.
+  name        String
+  accountType String // 'asset' | 'liability' | 'equity' | 'revenue' | 'expense'
+  parentId    String? @db.Uuid
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+
+  parent      FinAccount?  @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children    FinAccount[] @relation("AccountHierarchy")
+  journalLines FinJournalLine[]
+
+  @@unique([tenantId, code])
+  @@map("fin_accounts")
+}
+
+model FinJournalEntry {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String @db.Uuid
+  entryNumber   String @unique
+  entryDate     DateTime
+  description   String?
+  referenceType String? // 'invoice' | 'payment' | 'payroll' | 'manual'
+  referenceId   String? @db.Uuid
+  status        String  @default("DRAFT") // DRAFT | POSTED | VOIDED
+  postedAt      DateTime?
+  postedById    String? @db.Uuid
+  periodYear    Int
+  periodMonth   Int
+  createdAt     DateTime @default(now())
+
+  lines FinJournalLine[]
+
+  @@index([tenantId, periodYear, periodMonth])
+  @@map("fin_journal_entries")
+}
+
+model FinJournalLine {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  entryId      String @db.Uuid
+  accountId    String @db.Uuid
+  description  String?
+  debit        Decimal @db.Decimal(18, 4) @default(0)
+  credit       Decimal @db.Decimal(18, 4) @default(0)
+  costCenterId String? @db.Uuid
+  projectId    String? @db.Uuid
+  currency     String  @default("VND")
+  exchangeRate Decimal @db.Decimal(10, 6) @default(1)
+
+  entry   FinJournalEntry @relation(fields: [entryId], references: [id])
+  account FinAccount      @relation(fields: [accountId], references: [id])
+
+  @@map("fin_journal_lines")
+}
+
+model FinProjectBudget {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String @db.Uuid
+  projectId   String @db.Uuid
+  budgetYear  Int
+  budgetType  String // 'initial' | 'revised' | 'final'
+  totalBudget Decimal @db.Decimal(18, 2)
+  currency    String  @default("VND")
+  status      String  @default("DRAFT") // DRAFT | APPROVED | ACTIVE | CLOSED
+  approvedById String? @db.Uuid
+  approvedAt  DateTime?
+  lineItems   Json    @default("[]") // [{account_code, description, amount}]
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+  @@map("fin_project_budgets")
+}
+
+model FinInvoicePayable {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String @db.Uuid
+  invoiceNumber String?
+  vendorId      String? @db.Uuid
+  projectId     String? @db.Uuid
+  contractId    String? @db.Uuid
+  invoiceDate   DateTime?
+  dueDate       DateTime?
+  currency      String @default("VND")
+  subtotal      Decimal @db.Decimal(18, 2) @default(0)
+  taxAmount     Decimal @db.Decimal(18, 2) @default(0)
+  totalAmount   Decimal @db.Decimal(18, 2) @default(0)
+  paidAmount    Decimal @db.Decimal(18, 2) @default(0)
+  status        String  @default("PENDING") // PENDING | APPROVED | PAID | CANCELLED
+  paymentTerms  String?
+  lineItems     Json   @default("[]")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("fin_invoices_payable")
+}
+
+model FinInvoiceReceivable {
+  id            String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String @db.Uuid
+  invoiceNumber String?
+  customerId    String? @db.Uuid
+  projectId     String? @db.Uuid
+  contractId    String? @db.Uuid
+  invoiceDate   DateTime?
+  dueDate       DateTime?
+  currency      String @default("VND")
+  totalAmount   Decimal @db.Decimal(18, 2) @default(0)
+  paidAmount    Decimal @db.Decimal(18, 2) @default(0)
+  status        String  @default("DRAFT") // DRAFT | SENT | PARTIAL | PAID | OVERDUE | CANCELLED
+  lineItems     Json   @default("[]")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@map("fin_invoices_receivable")
+}

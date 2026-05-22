@@ -1,0 +1,167 @@
+// CDE Foundation: Tenants, Containers, Documents, Sessions
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Tenants (Platform-level multi-tenancy) ────────────────────────────────────
+model Tenant {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug      String   @unique
+  name      String
+  type      String   // 'industrial_zone' | 'ftz' | 'urban' | 'mixed'
+  settings  Json     @default("{}")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users            User[]
+  roles            Role[]
+  cdeContainers    CdeContainer[]
+  documents        Document[]
+  auditLogs        AuditLog[]
+
+  @@map("tenants")
+}
+
+// ── CDE Containers (ISO 19650 information container hierarchy) ────────────────
+model CdeContainer {
+  id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId            String        @db.Uuid
+  parentId            String?       @db.Uuid
+  code                String
+  classificationTable String?       // 'Ac' | 'Co' | 'EF' | 'En' | 'FI'
+  classificationCode  String?       // Uniclass 2015 code
+  name                String
+  containerType       String        // 'project' | 'zone' | 'building' | 'system' | 'floor'
+  status              String        @default("active")
+  metadata            Json          @default("{}")
+  pathLtree           String?       // ltree path string (managed by DB trigger)
+  createdAt           DateTime      @default(now())
+  createdById         String?       @db.Uuid
+
+  tenant     Tenant         @relation(fields: [tenantId], references: [id])
+  parent     CdeContainer?  @relation("ContainerHierarchy", fields: [parentId], references: [id])
+  children   CdeContainer[] @relation("ContainerHierarchy")
+  documents  Document[]
+  createdBy  User?          @relation("ContainerCreator", fields: [createdById], references: [id])
+
+  @@index([tenantId])
+  @@index([parentId])
+  @@index([tenantId, containerType])
+  @@map("cde_containers")
+}
+
+// ── Documents (CDE Information Items with ISO 19650 lifecycle) ────────────────
+model Document {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  containerId String?  @db.Uuid
+
+  // ISO 19650 Part 2 naming fields
+  projectCode    String?
+  originator     String?
+  volumeOrSystem String?
+  level          String?
+  docType        String?
+  role           String?
+  number         String?
+
+  title              String
+  description        String?
+  classificationCode String?   // Uniclass 2015
+
+  // Lifecycle state machine: WIP → SHARED → PUBLISHED → ARCHIVED
+  status             String   @default("WIP")
+
+  currentRevisionId  String?  @db.Uuid
+  latestVersion      Int      @default(0)
+
+  // Polymorphic link to owning module entity
+  moduleType  String?  // 'project' | 'contract' | 'hrm' | 'asset' etc.
+  moduleRefId String?  @db.Uuid
+
+  tags          String[]
+  searchVector  String?  // tsvector stored as string, managed by DB
+
+  createdAt   DateTime @default(now())
+  createdById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant        @relation(fields: [tenantId], references: [id])
+  container CdeContainer? @relation(fields: [containerId], references: [id])
+  createdBy User?         @relation("DocumentCreator", fields: [createdById], references: [id])
+  revisions DocumentRevision[]
+  approvals DocumentApproval[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([moduleType, moduleRefId])
+  @@map("documents")
+}
+
+// ── Document Revisions (version history) ──────────────────────────────────────
+model DocumentRevision {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId String @db.Uuid
+  tenantId   String @db.Uuid
+
+  revisionNumber String  // P01, P02, C01...
+  versionNumber  Int
+  status         String  // mirrors parent lifecycle state
+
+  storageBucket  String
+  storageKey     String
+  fileName       String
+  fileSize       BigInt?
+  mimeType       String?
+  checksum       String?  // SHA-256
+
+  ifcGuid             String?
+  ifcModelId          String?  @db.Uuid
+
+  changeDescription   String?
+  uploadedById        String   @db.Uuid
+  uploadedAt          DateTime @default(now())
+
+  workflowInstanceId  String?  // Temporal workflow ID
+
+  document   Document @relation(fields: [documentId], references: [id])
+  uploadedBy User     @relation("RevisionUploader", fields: [uploadedById], references: [id])
+  approvals  DocumentApproval[]
+
+  @@index([documentId])
+  @@map("document_revisions")
+}
+
+// ── Document Approvals (multi-step workflow) ───────────────────────────────────
+model DocumentApproval {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  documentId String  @db.Uuid
+  revisionId String  @db.Uuid
+  tenantId   String  @db.Uuid
+
+  workflowStep Int
+  approverId   String?  @db.Uuid
+  approverRole String?
+
+  status     String   @default("PENDING")  // PENDING | APPROVED | REJECTED | DELEGATED
+  actionAt   DateTime?
+  comment    String?
+
+  requiredBy   DateTime?
+  escalatedToId String?  @db.Uuid
+
+  document   Document         @relation(fields: [documentId], references: [id])
+  revision   DocumentRevision @relation(fields: [revisionId], references: [id])
+  approver   User?            @relation("ApprovalApprover", fields: [approverId], references: [id])
+  escalatedTo User?           @relation("ApprovalEscalation", fields: [escalatedToId], references: [id])
+
+  @@index([documentId, status])
+  @@map("document_approvals")
+}

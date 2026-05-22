@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+.next/
+dist/
+.turbo/
+out/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Generated files
+*.generated.ts
+prisma/migrations/
+packages/db/node_modules/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Cache
+.cache/
+.eslintcache
+
+# Test coverage
+coverage/
+
+# Docker volumes (if accidentally mounted)
+postgres_data/
+redis_data/

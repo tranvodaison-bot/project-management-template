@@ -1,0 +1,130 @@
+// Asset Management: Assets, Maintenance, IoT
+
+model Asset {
+  id                 String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String @db.Uuid
+  assetNumber        String @unique
+  name               String
+  description        String?
+  assetType          String // 'infrastructure' | 'equipment' | 'vehicle' | 'it' | 'real_estate'
+  uniclassCode       String?
+  categoryId         String? @db.Uuid
+  location           String?
+  zoneId             String? @db.Uuid
+  assignedToId       String? @db.Uuid
+  projectId          String? @db.Uuid
+  status             String @default("ACTIVE") // PLANNING | PROCUREMENT | ACTIVE | MAINTENANCE | DISPOSAL
+  acquisitionDate    DateTime?
+  acquisitionCost    Decimal? @db.Decimal(18, 2)
+  depreciationMethod String?  // 'straight_line' | 'declining_balance'
+  usefulLifeYears    Int?
+  salvageValue       Decimal? @db.Decimal(18, 2)
+  currentBookValue   Decimal? @db.Decimal(18, 2)
+  ifcGuid            String?
+  bimModelId         String?  @db.Uuid
+  iotDeviceId        String?
+  lastMaintenanceDate DateTime?
+  nextMaintenanceDate DateTime?
+  warrantyExpiryDate  DateTime?
+  specifications     Json     @default("{}")
+  documentIds        String[] @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  maintenanceSchedules AssetMaintenanceSchedule[]
+  maintenanceLogs      AssetMaintenanceLog[]
+  disposals            AssetDisposal[]
+  iotDevice            IotDevice?
+
+  @@index([tenantId, assetType])
+  @@index([tenantId, status])
+  @@map("assets")
+}
+
+model AssetMaintenanceSchedule {
+  id                  String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetId             String @db.Uuid
+  tenantId            String @db.Uuid
+  maintenanceType     String // 'preventive' | 'predictive' | 'corrective'
+  frequency           String // 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'annual'
+  nextDue             DateTime
+  assignedTechnicianId String? @db.Uuid
+  estimatedCost       Decimal? @db.Decimal(12, 2)
+  isActive            Boolean @default(true)
+  createdAt           DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@map("asset_maintenance_schedules")
+}
+
+model AssetMaintenanceLog {
+  id          String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetId     String @db.Uuid
+  workOrderId String? @db.Uuid
+  tenantId    String @db.Uuid
+  performedAt DateTime
+  technicianId String @db.Uuid
+  description String
+  cost        Decimal? @db.Decimal(12, 2)
+  partsUsed   Json    @default("[]")
+  createdAt   DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@map("asset_maintenance_logs")
+}
+
+model AssetDisposal {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  assetId        String @db.Uuid
+  tenantId       String @db.Uuid
+  disposalDate   DateTime
+  disposalMethod String // 'sale' | 'scrap' | 'donate' | 'transfer'
+  proceeds       Decimal? @db.Decimal(18, 2)
+  approvedById   String? @db.Uuid
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  asset Asset @relation(fields: [assetId], references: [id])
+
+  @@map("asset_disposals")
+}
+
+// ── IoT ───────────────────────────────────────────────────────────────────────
+model IotDevice {
+  id               String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String @db.Uuid
+  deviceId         String @unique
+  deviceType       String // 'energy_meter' | 'camera' | 'access_control' | 'environmental'
+  assetId          String? @db.Uuid @unique
+  location         String?
+  protocol         String? // 'MQTT' | 'HTTP' | 'Modbus'
+  connectionString String?
+  isActive         Boolean @default(true)
+  lastSeenAt       DateTime?
+  configuration    Json    @default("{}")
+  createdAt        DateTime @default(now())
+
+  asset    Asset?       @relation(fields: [assetId], references: [id])
+  readings IotReading[]
+
+  @@map("iot_devices")
+}
+
+model IotReading {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  time       DateTime @default(now())
+  deviceId   String   @db.Uuid
+  tenantId   String   @db.Uuid
+  metricName String
+  value      Decimal  @db.Decimal(15, 4)
+  unit       String?
+  quality    String   @default("GOOD")
+
+  device IotDevice @relation(fields: [deviceId], references: [id])
+
+  @@index([deviceId, time])
+  @@index([time])
+  @@map("iot_readings")
+}
